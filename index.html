@@ -352,7 +352,7 @@
       color: var(--accent);
     }
 
-    /* ════ PANEL INFERIOR ══════════════���═════════ */
+    /* ════ PANEL INFERIOR ══════════════════════════ */
     #panel {
       position: fixed;
       bottom: 0;
@@ -462,7 +462,7 @@
       background: rgba(63, 185, 80, 0.08);
     }
 
-    /* ══��═ TEMPERATURA ════════════════════════════ */
+    /* ══════ TEMPERATURA ════════════════════════════ */
     #tempBox {
       display: flex;
       align-items: center;
@@ -725,7 +725,7 @@
       background: rgba(224, 92, 42, 0.1);
     }
 
-    /* ════ RESPONSIVE ════════════════════════════ */
+    /* ════ RESPONSIVE ═══���════════════════════════ */
     @media (max-width: 480px) {
       :root {
         --panel-h: 340px;
@@ -907,7 +907,7 @@
       L.control.scale({ position: 'bottomleft', imperial: false }).addTo(STATE.map);
     }
 
-    // ════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════���════
     // POSICIÓN EN EL MAPA
     // ════════════════════════════════════════════════════════════
     function placeMarker(lat, lon, acc, alt = null, heading = null) {
@@ -947,14 +947,15 @@
         STATE.marker.openPopup();
         hideSplash();
         
+        // Obtener temperatura inmediatamente
         fetchTemperature();
         
-        // Actualizar temperatura cada 10 minutos
+        // Actualizar temperatura cada 30 minutos automáticamente
         STATE.tempUpdateInterval = setInterval(() => {
           if (!STATE.isDestroyed) {
             fetchTemperature();
           }
-        }, 600000);
+        }, 1800000);
       }
     }
 
@@ -988,374 +989,230 @@
     }
 
     // ════════════════════════════════════════════════════════════
-    // TEMPERATURA EN TIEMPO REAL
+    // TEMPERATURA EN TIEMPO REAL (Open-Meteo API)
     // ════════════════════════════════════════════════════════════
     async function fetchTemperature() {
       if (STATE.lat === null || STATE.lon === null || STATE.isDestroyed) return;
 
       const tempBox = document.getElementById('tempBox');
       const refreshBtn = document.getElementById('tempRefresh');
-      
+      const tempValue = document.getElementById('tempValue');
+      const tempLabel = document.getElementById('tempLabel');
+      const tempIcon = document.getElementById('tempIcon');
+
       if (!tempBox || !refreshBtn) return;
 
-      refreshBtn.classList.add('refreshing');
       tempBox.classList.add('loading');
+      refreshBtn.classList.add('refreshing');
 
       try {
-        const response = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${STATE.lat}&longitude=${STATE.lon}&current=temperature_2m,weather_code,relative_humidity&timezone=auto`,
-          { signal: AbortSignal.timeout(8000) }
-        );
-
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-        const data = await response.json();
-        const current = data.current;
-        const temp = Math.round(current.temperature_2m);
-        const humidity = current.relative_humidity;
-
-        STATE.temp = temp;
-
-        // Determinar categoría de temperatura
-        let tempClass = 'cold';
-        let tempIcon = '🥶';
+        // Open-Meteo API - Completamente GRATIS, SIN API KEY
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${STATE.lat}&longitude=${STATE.lon}&current=temperature_2m,weather_code&timezone=auto`;
         
-        if (temp < 10) {
-          tempClass = 'cold';
-          tempIcon = '🥶';
-        } else if (temp < 20) {
-          tempClass = 'cool';
-          tempIcon = '❄️';
-        } else if (temp < 28) {
-          tempClass = 'warm';
-          tempIcon = '☀️';
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(5000) // Timeout 5 segundos
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        const temp = Math.round(data.current.temperature_2m);
+        
+        STATE.temp = temp;
+        
+        // Determinar color e icono por temperatura
+        let colorClass = 'cool';
+        let iconName = 'cloud-rain';
+        
+        if (temp < 0) {
+          colorClass = 'cold';
+          iconName = 'cloud-snow';
+        } else if (temp < 15) {
+          colorClass = 'cool';
+          iconName = 'cloud-rain';
+        } else if (temp < 25) {
+          colorClass = 'warm';
+          iconName = 'cloud-sun';
         } else {
-          tempClass = 'hot';
-          tempIcon = '🔥';
+          colorClass = 'hot';
+          iconName = 'sun';
         }
 
-        // Actualizar UI
-        tempBox.className = tempClass;
-
-        document.getElementById('tempIcon').textContent = tempIcon;
+        // Actualizar UI con cambios visuales
+        tempValue.className = `temp-value ${colorClass}`;
+        tempValue.innerHTML = `<span>${temp}°C</span>`;
+        tempLabel.textContent = colorClass.toUpperCase();
         
-        const tempValue = document.getElementById('tempValue');
-        tempValue.className = `temp-value ${tempClass}`;
-        tempValue.innerHTML = `<strong>${temp}°C</strong> <span>${humidity}% H</span>`;
-
-        const tempLabel = document.getElementById('tempLabel');
-        const zone = getTemperatureZone(temp);
-        tempLabel.textContent = zone + ' • Actualizado hace momentos';
-
+        tempBox.classList.remove('loading');
+        tempBox.className = `tempBox ${colorClass}`;
+        tempIcon.className = `iconoir-${iconName}`;
+        
+        // Actualizar popup y mostrar toast
         updatePopup(STATE.lat, STATE.lon, STATE.acc, STATE.alt, STATE.heading);
-
+        showToast(`🌡️ ${temp}°C en tiempo real`, 'ok');
+        
       } catch (error) {
         console.error('Error obteniendo temperatura:', error);
-        if (document.getElementById('tempLabel')) {
-          document.getElementById('tempLabel').textContent = 'Error obteniendo datos';
-        }
+        tempValue.innerHTML = '<span>—°C</span>';
+        tempLabel.textContent = 'Sin conexión';
+        tempBox.classList.remove('loading');
+        showToast('⚠️ No se pudo obtener la temperatura', 'err');
       } finally {
-        if (refreshBtn) {
-          refreshBtn.classList.remove('refreshing');
-        }
+        refreshBtn.classList.remove('refreshing');
       }
-    }
-
-    function getTemperatureZone(temp) {
-      if (temp < 0) return '❄️ Congelación';
-      if (temp < 10) return '🥶 Muy frío';
-      if (temp < 15) return '❄️ Frío';
-      if (temp < 20) return '😊 Fresco';
-      if (temp < 25) return '😌 Agradable';
-      if (temp < 28) return '☀️ Cálido';
-      if (temp < 35) return '🔥 Muy caliente';
-      return '🌡️ Extremadamente caliente';
     }
 
     // ════════════════════════════════════════════════════════════
     // GEOLOCALIZACIÓN
-    // ═════════════════════════════════��══════════════════════════
-    function startGeolocation() {
+    // ═════��══════════════════════════════════════════════════════
+    function startTracking() {
       if (!navigator.geolocation) {
-        hideSplash();
-        showPermissionDenied();
+        showPermDenied();
         return;
       }
 
-      const opts = {
+      const options = {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: 10000,
         maximumAge: 0,
       };
 
-      navigator.geolocation.getCurrentPosition(onGeoSuccess, onGeoError, opts);
-      STATE.watchId = navigator.geolocation.watchPosition(onGeoSuccess, onGeoError, opts);
-    }
+      STATE.watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude, accuracy, altitude, heading } = pos.coords;
+          STATE.lat = latitude;
+          STATE.lon = longitude;
+          STATE.acc = accuracy;
+          STATE.alt = altitude;
+          STATE.heading = heading;
 
-    function onGeoSuccess(position) {
-      if (STATE.isDestroyed) return;
-
-      const {
-        latitude: lat,
-        longitude: lon,
-        accuracy: acc,
-        altitude: alt,
-        heading,
-        speed,
-      } = position.coords;
-
-      STATE.lat = lat;
-      STATE.lon = lon;
-      STATE.acc = acc;
-      STATE.alt = alt;
-      STATE.heading = heading;
-      STATE.speed = speed;
-
-      placeMarker(lat, lon, acc, alt, heading);
-      updateUI();
-    }
-
-    function onGeoError(error) {
-      if (STATE.isDestroyed) return;
-
-      const messages = {
-        1: { msg: 'Permiso de ubicación denegado', type: 'perm' },
-        2: { msg: 'Señal GPS débil, reintentando…', type: 'weak' },
-        3: { msg: 'Tiempo agotado, reintentando…', type: 'timeout' },
-      };
-
-      const errorInfo = messages[error.code] || { msg: 'Error desconocido', type: 'unknown' };
-
-      if (errorInfo.type === 'perm') {
-        hideSplash();
-        showPermissionDenied();
-        cleanupGeolocation();
-      } else if (errorInfo.type === 'weak') {
-        setSplashMsg(errorInfo.msg);
-      } else if (errorInfo.type === 'timeout') {
-        setSplashMsg(errorInfo.msg);
-      }
-
-      console.warn('Geolocation error:', errorInfo.msg);
-    }
-
-    function cleanupGeolocation() {
-      if (STATE.watchId !== null) {
-        navigator.geolocation.clearWatch(STATE.watchId);
-        STATE.watchId = null;
-      }
+          updateUI();
+          placeMarker(latitude, longitude, accuracy, altitude, heading);
+        },
+        (err) => {
+          console.error('Geolocation error:', err);
+          if (err.code === 1) showPermDenied();
+        },
+        options
+      );
     }
 
     // ════════════════════════════════════════════════════════════
     // ACTUALIZAR UI
-    // ════════════════════════════════════════════════════════════
+    // ═══════════════════════════��════════════════════════════════
     function updateUI() {
-      const { lat, lon, acc } = STATE;
-      if (lat === null) return;
+      if (STATE.lat === null) return;
 
-      const latS = lat.toFixed(6);
-      const lonS = lon.toFixed(6);
-      const accS = acc < 1000 ? `±${Math.round(acc)}m` : `±${(acc / 1000).toFixed(1)}km`;
-      const timeStr = getCurrentTime();
+      document.getElementById('cMain').textContent = `${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)}`;
+      document.getElementById('cSub').textContent = `Precisión ±${Math.round(STATE.acc)}m • ${new Date().toLocaleTimeString('es-ES')}`;
 
-      document.getElementById('cMain').textContent = `${latS}, ${lonS}`;
-      document.getElementById('cSub').textContent = `Precisión ${accS} · ${timeStr}`;
+      document.getElementById('sLat').textContent = STATE.lat.toFixed(6);
+      document.getElementById('sLon').textContent = STATE.lon.toFixed(6);
+      document.getElementById('sAcc').textContent = `±${Math.round(STATE.acc)}m`;
 
-      document.getElementById('sLat').textContent = latS;
-      document.getElementById('sLon').textContent = lonS;
-      document.getElementById('sAcc').textContent = accS;
-
-      const isAccurate = acc < 50;
-      const hudDot = document.getElementById('hudDot');
-      hudDot.className = `hud-dot ${isAccurate ? 'active' : 'searching'}`;
-
-      const hudBadge = document.getElementById('hudBadge');
-      hudBadge.className = `hud-badge ${isAccurate ? 'ok' : ''}`;
-      document.getElementById('hudAcc').textContent = accS;
+      document.getElementById('hudDot').className = 'hud-dot active';
+      document.getElementById('hudBadge').classList.add('ok');
+      document.getElementById('hudAcc').textContent = `±${Math.round(STATE.acc)}m`;
     }
 
     // ════════════════════════════════════════════════════════════
-    // COMPARTIR
+    // COPIAR COORDENADAS
     // ════════════════════════════════════════════════════════════
-    function getMapsUrl() {
-      return `https://www.google.com/maps?q=${STATE.lat},${STATE.lon}`;
-    }
-
-    function getShareText() {
-      let text = `��� Mi ubicación actual:\n${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)} ±${Math.round(STATE.acc)}m`;
-      
-      if (STATE.temp !== null) {
-        const zone = getTemperatureZone(STATE.temp);
-        text += `\n🌡️ Temperatura: ${STATE.temp}°C (${zone})`;
-      }
-      
-      text += `\n\n🗺️ Ver en mapa:\n${getMapsUrl()}`;
-      
-      return text;
-    }
-
-    function shareWA() {
-      if (!isReady()) return;
-      window.open('https://wa.me/?text=' + encodeURIComponent(getShareText()), '_blank');
-    }
-
-    async function shareNative() {
-      if (!isReady()) return;
-
-      if (navigator.share) {
-        try {
-          await navigator.share({
-            title: '📍 Mi Ubicación',
-            text: getShareText(),
-            url: getMapsUrl(),
-          });
-          return;
-        } catch (error) {
-          if (error.name !== 'AbortError') {
-            console.warn('Share error:', error);
-          }
-          return;
-        }
-      }
-
-      copyText(getMapsUrl());
-      toast('Enlace copiado al portapapeles', 'ok');
-    }
-
-    function openGMaps() {
-      if (!isReady()) return;
-      window.open(`https://www.google.com/maps?q=${STATE.lat},${STATE.lon}&z=17`, '_blank');
-    }
-
-    function copyCoords() {
-      if (!isReady()) return;
+    async function copyCoords() {
+      if (STATE.lat === null) return;
 
       const text = `${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)}`;
-      copyText(text);
-
-      const btn = document.getElementById('btnCopy');
-      const span = btn.querySelector('span');
-      btn.classList.add('copied');
-
-      setTimeout(() => {
-        btn.classList.remove('copied');
-        span.textContent = 'Copiar';
-      }, 2000);
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // UTILIDADES UI
-    // ════════════════════════════════════════════════════════════
-    function isReady() {
-      if (STATE.lat === null) {
-        toast('Obteniendo ubicación…', 'err');
-        return false;
-      }
-      return true;
-    }
-
-    function copyText(text) {
-      // Método moderno con fallback
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        navigator.clipboard.writeText(text)
-          .then(() => {
-            const btn = document.getElementById('btnCopy');
-            if (btn) {
-              const span = btn.querySelector('span');
-              if (span) span.textContent = '✓ Copiado';
-            }
-          })
-          .catch(err => {
-            console.warn('Clipboard API error:', err);
-            fallbackCopyText(text);
-          });
-      } else {
-        fallbackCopyText(text);
+      try {
+        await navigator.clipboard.writeText(text);
+        const btn = document.getElementById('btnCopy');
+        btn.classList.add('copied');
+        btn.innerHTML = '<i class="iconoir-check"></i> <span>Copiado</span>';
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = '<i class="iconoir-copy"></i> <span>Copiar</span>';
+        }, 2000);
+        showToast('✓ Coordenadas copiadas', 'ok');
+      } catch (err) {
+        showToast('Error al copiar', 'err');
       }
     }
 
-    function fallbackCopyText(text) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      textarea.style.pointerEvents = 'none';
-      document.body.appendChild(textarea);
+    // ════════════════════════════════════════════════════════════
+    // COMPARTIR EN WHATSAPP
+    // ════════════════════════════════════════════════════════════
+    function shareWA() {
+      if (STATE.lat === null) return;
+
+      const text = `📍 Mi ubicación en vivo:\nhttps://maps.google.com/?q=${STATE.lat},${STATE.lon}`;
+      const encodedText = encodeURIComponent(text);
+      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // COMPARTIR NATIVO
+    // ════════════════════════════════════════════════════════════
+    async function shareNative() {
+      if (STATE.lat === null || !navigator.share) {
+        shareWA();
+        return;
+      }
 
       try {
-        textarea.select();
-        document.execCommand('copy');
-        const btn = document.getElementById('btnCopy');
-        if (btn) {
-          const span = btn.querySelector('span');
-          if (span) span.textContent = '✓ Copiado';
-        }
+        await navigator.share({
+          title: 'Mi Ubicación',
+          text: `📍 Lat: ${STATE.lat.toFixed(6)}, Lon: ${STATE.lon.toFixed(6)}`,
+          url: `https://maps.google.com/?q=${STATE.lat},${STATE.lon}`,
+        });
       } catch (err) {
-        console.warn('Fallback copy error:', err);
-        toast('No se pudo copiar', 'err');
-      } finally {
-        document.body.removeChild(textarea);
+        if (err.name !== 'AbortError') {
+          console.error('Error compartiendo:', err);
+        }
       }
     }
 
-    function getCurrentTime() {
-      const now = new Date();
-      return now.toLocaleTimeString('es-ES', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
+    // ════════════════════════════════════════════════════════════
+    // ABRIR EN GOOGLE MAPS
+    // ══════════════════════════��═════════════════════════════════
+    function openGMaps() {
+      if (STATE.lat === null) return;
+      window.open(`https://maps.google.com/?q=${STATE.lat},${STATE.lon}`, '_blank');
     }
 
+    // ════════════════════════════════════════════════════════════
+    // MOSTRAR/OCULTAR UI
+    // ════════════════════════════════════════════════════════════
     function hideSplash() {
       document.getElementById('splash').classList.add('hidden');
     }
 
-    function setSplashMsg(msg) {
-      document.getElementById('splashMsg').textContent = msg;
-    }
-
-    function showPermissionDenied() {
+    function showPermDenied() {
       document.getElementById('permDenied').classList.add('show');
     }
 
-    function toast(msg, type = 'info') {
-      const el = document.getElementById('toast');
-      el.textContent = msg;
-      el.className = `show ${type}`;
+    function showToast(msg, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.className = `show ${type}`;
       setTimeout(() => {
-        el.classList.remove('show');
+        toast.classList.remove('show');
       }, 3000);
     }
 
     // ════════════════════════════════════════════════════════════
-    // INICIAR APP
+    // INICIALIZACIÓN
     // ════════════════════════════════════════════════════════════
-    window.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', () => {
       initMap();
-      startGeolocation();
+      startTracking();
     });
 
-    // Limpiar recursos cuando se cierra la pestaña
     window.addEventListener('beforeunload', () => {
       STATE.isDestroyed = true;
-      cleanupGeolocation();
+      if (STATE.watchId) {
+        navigator.geolocation.clearWatch(STATE.watchId);
+      }
       if (STATE.tempUpdateInterval) {
         clearInterval(STATE.tempUpdateInterval);
-      }
-    });
-
-    // Pausar actualizaciones si la pestaña pierde foco (ahorro de batería)
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden && STATE.tempUpdateInterval) {
-        clearInterval(STATE.tempUpdateInterval);
-        STATE.tempUpdateInterval = null;
-      } else if (!document.hidden && STATE.firstFix) {
-        STATE.tempUpdateInterval = setInterval(() => {
-          if (!STATE.isDestroyed) {
-            fetchTemperature();
-          }
-        }, 600000);
       }
     });
   </script>
