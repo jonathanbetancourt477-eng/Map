@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Aplicación de geolocalización en tiempo real con mapa interactivo" />
+  <title>Mi Ubicación en Vivo</title>
+
+  <!-- Iconoir Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/iconoir-icons/iconoir@main/css/iconoir.css" />
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --accent:  #f0b429;
+      --accent2: #e05c2a;
+      --safe:    #3fb950;
+      --muted:   #6e7681;
+      --text:    #e6edf3;
+      --text2:   #8b949e;
+      --panel-h: 240px;
+      --hud-h:   52px;
+      --radius:  14px;
+      --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      height: 100%;
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ════ SPLASH ════════════════════════════════════ */
+    #splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: linear-gradient(135deg, var(--bg) 0%, var(--surface) 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      transition: opacity var(--transition), visibility var(--transition);
+    }
+
+    #splash.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .s-ring {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      animation: spin 1s linear infinite;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .s-ring::after {
+      content: '';
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      border: 3px solid transparent;
+      border-top-color: var(--accent2);
+      position: absolute;
+      animation: spin 0.7s linear infinite reverse;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .s-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .s-sub {
+      font-size: 13px;
+      color: var(--muted);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    /* ════ PERMISO DENEGADO ══════════════════════════ */
+    #permDenied {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9000;
+      background: rgba(13, 17, 23, 0.96);
+      backdrop-filter: blur(10px);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      text-align: center;
+      padding: 32px;
+    }
+
+    #permDenied.show {
+      display: flex;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    #permDenied i {
+      font-size: 52px;
+      color: var(--accent2);
+    }
+
+    #permDenied h2 {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    #permDenied p {
+      font-size: 13px;
+      color: var(--muted);
+      max-width: 300px;
+      line-height: 1.65;
+    }
+
+    #btnRetry {
+      margin-top: 8px;
+      background: linear-gradient(135deg, var(--accent) 0%, #e08d1a 100%);
+      color: #0d1117;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 32px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform var(--transition), box-shadow var(--transition);
+      box-shadow: 0 4px 15px rgba(240, 180, 41, 0.2);
+    }
+
+    #btnRetry:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(240, 180, 41, 0.3);
+    }
+
+    #btnRetry:active {
+      transform: translateY(0);
+    }
+
+    /* ════ HUD ───────────────────────────────────── */
+    #hud {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: var(--hud-h);
+      background: rgba(13, 17, 23, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 12px;
+      z-index: 500;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .hud-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: all var(--transition);
+    }
+
+    .hud-dot.searching {
+      background: var(--accent);
+      animation: blink 1s ease infinite;
+    }
+
+    .hud-dot.active {
+      background: var(--safe);
+      box-shadow: 0 0 8px var(--safe), inset 0 0 4px rgba(63, 185, 80, 0.5);
+      animation: blink 2s ease infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.35;
+      }
+    }
+
+    .hud-title {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+
+    .hud-badge {
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 10px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all var(--transition);
+    }
+
+    .hud-badge.ok {
+      color: var(--safe);
+      border-color: rgba(63, 185, 80, 0.4);
+      background: rgba(63, 185, 80, 0.08);
+    }
+
+    .hud-badge i {
+      font-size: 12px;
+    }
+
+    /* ════ MAPA LEAFLET ══════════════════════════ */
+    #map {
+      position: fixed;
+      top: var(--hud-h);
+      left: 0;
+      right: 0;
+      bottom: var(--panel-h);
+      background: #1a2030;
+      z-index: 1;
+    }
+
+    .leaflet-bottom.leaflet-right {
+      bottom: 8px;
+      right: 8px;
+    }
+
+    .leaflet-control-zoom {
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .leaflet-control-zoom a {
+      background: var(--surface) !important;
+      color: var(--text) !important;
+      border-color: var(--border) !important;
+      border: 1px solid var(--border) !important;
+      font-weight: 600;
+    }
+
+    .leaflet-control-zoom a:hover {
+      background: var(--bg) !important;
+      border-color: var(--accent) !important;
+    }
+
+    /* Marcador personalizado */
+    .my-marker {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 3px solid #fff;
+      box-shadow: 0 0 0 0 rgba(240, 180, 41, 0.6);
+      animation: ripple 2s ease-out infinite;
+    }
+
+    @keyframes ripple {
+      0% {
+        box-shadow: 0 0 0 0 rgba(240, 180, 41, 0.6);
+      }
+      70% {
+        box-shadow: 0 0 0 16px rgba(240, 180, 41, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(240, 180, 41, 0);
+      }
+    }
+
+    /* Popup */
+    .leaflet-popup-content-wrapper {
+      background: var(--surface) !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 10px !important;
+      font-size: 12px !important;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+      font-family: inherit !important;
+    }
+
+    .leaflet-popup-tip {
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+    }
+
+    .leaflet-popup-content {
+      margin: 12px 14px !important;
+      line-height: 1.7;
+    }
+
+    .leaflet-popup-content b {
+      color: var(--accent);
+    }
+
+    /* ════ PANEL INFERIOR ════════════════════════ */
+    #panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: var(--panel-h);
+      background: rgba(18, 23, 30, 0.98);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid var(--border);
+      border-radius: var(--radius) var(--radius) 0 0;
+      padding: 16px 16px max(20px, env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 400;
+      box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    #panel::before {
+      content: '';
+      width: 36px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    /* Coordenadas */
+    #coordsBox {
+      display: flex;
+      align-items: center;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 13px;
+      gap: 10px;
+      transition: all var(--transition);
+    }
+
+    #coordsBox:hover {
+      border-color: var(--accent);
+      background: rgba(240, 180, 41, 0.05);
+    }
+
+    #coordsBox > i {
+      font-size: 18px;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .c-data {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .c-main {
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.2px;
+    }
+
+    .c-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 3px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #btnCopy {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 7px 11px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: all var(--transition);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #btnCopy:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(240, 180, 41, 0.08);
+    }
+
+    #btnCopy.copied {
+      border-color: var(--safe);
+      color: var(--safe);
+      background: rgba(63, 185, 80, 0.08);
+    }
+
+    /* Stats */
+    .stats-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .stat-chip {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 10px;
+      text-align: center;
+      transition: all var(--transition);
+    }
+
+    .stat-chip:hover {
+      border-color: var(--accent);
+      background: rgba(240, 180, 41, 0.05);
+    }
+
+    .s-val {
+      font-size: 13px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.3px;
+    }
+
+    .s-val.y {
+      color: var(--accent);
+    }
+
+    .s-val.g {
+      color: var(--safe);
+    }
+
+    .s-lbl {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 500;
+    }
+
+    /* Botones */
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      flex: 1;
+      min-width: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 11px 12px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all var(--transition);
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    .btn:active {
+      transform: scale(0.95);
+      opacity: 0.8;
+    }
+
+    .btn i {
+      font-size: 16px;
+    }
+
+    .btn-wa {
+      background: linear-gradient(135deg, #25D366 0%, #20ba5a 100%);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(37, 211, 102, 0.2);
+    }
+
+    .btn-wa:hover {
+      box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .btn-share {
+      background: linear-gradient(135deg, var(--accent) 0%, #e08d1a 100%);
+      color: #0d1117;
+      box-shadow: 0 2px 8px rgba(240, 180, 41, 0.2);
+    }
+
+    .btn-share:hover {
+      box-shadow: 0 4px 12px rgba(240, 180, 41, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .btn-gmap {
+      flex: 0 0 auto;
+      padding: 11px 14px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-gmap:hover {
+      border-color: var(--accent);
+      background: rgba(240, 180, 41, 0.08);
+    }
+
+    /* ════ TOAST ═════════════════════════════════ */
+    #toast {
+      position: fixed;
+      bottom: calc(var(--panel-h) + 14px);
+      left: 50%;
+      transform: translateX(-50%) translateY(12px);
+      background: rgba(28, 34, 44, 0.98);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 18px;
+      border-radius: 30px;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: all var(--transition);
+      z-index: 600;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    #toast.ok {
+      border-color: rgba(63, 185, 80, 0.5);
+      color: var(--safe);
+      background: rgba(63, 185, 80, 0.1);
+    }
+
+    #toast.err {
+      border-color: rgba(224, 92, 42, 0.5);
+      color: var(--accent2);
+      background: rgba(224, 92, 42, 0.1);
+    }
+
+    /* ════ RESPONSIVE ════════════════════════════ */
+    @media (max-width: 480px) {
+      :root {
+        --panel-h: 260px;
+      }
+
+      .btn {
+        font-size: 12px;
+        padding: 10px 10px;
+      }
+
+      .stat-chip {
+        padding: 8px 8px;
+      }
+
+      .s-val {
+        font-size: 12px;
+      }
+    }
+
+    /* Scrollbar personalizado */
+    #panel::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    #panel::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #panel::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    #panel::-webkit-scrollbar-thumb:hover {
+      background: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <!-- SPLASH -->
+  <div id="splash">
+    <div class="s-ring"></div>
+    <div class="s-title">📍 Ubicación en Vivo</div>
+    <div class="s-sub" id="splashMsg">Solicitando acceso al GPS…</div>
+  </div>
+
+  <!-- PERMISO DENEGADO -->
+  <div id="permDenied">
+    <i class="iconoir-map-xmark"></i>
+    <h2>Permiso requerido</h2>
+    <p>Debes autorizar el acceso a tu ubicación desde la configuración de tu navegador para continuar.</p>
+    <button id="btnRetry" onclick="location.reload()">🔄 Intentar de nuevo</button>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-dot searching" id="hudDot"></div>
+    <span class="hud-title">Mi Ubicación en Vivo</span>
+    <span class="hud-badge" id="hudBadge">
+      <i class="iconoir-satellite"></i>
+      <span id="hudAcc">Buscando…</span>
+    </span>
+  </div>
+
+  <!-- MAPA LEAFLET -->
+  <div id="map"></div>
+
+  <!-- PANEL -->
+  <div id="panel">
+    <!-- Coordenadas -->
+    <div id="coordsBox">
+      <i class="iconoir-position"></i>
+      <div class="c-data">
+        <div class="c-main" id="cMain">Obteniendo posición…</div>
+        <div class="c-sub" id="cSub">Activando GPS</div>
+      </div>
+      <button id="btnCopy" onclick="copyCoords()" title="Copiar coordenadas">
+        <i class="iconoir-copy"></i> <span>Copiar</span>
+      </button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-chip">
+        <div class="s-val y" id="sLat">—</div>
+        <div class="s-lbl">Latitud</div>
+      </div>
+      <div class="stat-chip">
+        <div class="s-val y" id="sLon">—</div>
+        <div class="s-lbl">Longitud</div>
+      </div>
+      <div class="stat-chip">
+        <div class="s-val g" id="sAcc">—</div>
+        <div class="s-lbl">Precisión</div>
+      </div>
+    </div>
+
+    <!-- Botones de acción -->
+    <div class="btn-row">
+      <button class="btn btn-wa" onclick="shareWA()" title="Compartir en WhatsApp">
+        <i class="iconoir-chat-bubble"></i> WhatsApp
+      </button>
+      <button class="btn btn-share" onclick="shareNative()" title="Compartir ubicación">
+        <i class="iconoir-share-android"></i> Compartir
+      </button>
+      <button class="btn btn-gmap" onclick="openGMaps()" title="Abrir en Google Maps">
+        <i class="iconoir-map"></i> Mapas
+      </button>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // ════════════════════════════════════════════════════════════
+    // ESTADO GLOBAL
+    // ════════════════════════════════════════════════════════════
+    const STATE = {
+      lat: null,
+      lon: null,
+      acc: null,
+      alt: null,
+      heading: null,
+      speed: null,
+      watchId: null,
+      map: null,
+      marker: null,
+      circle: null,
+      firstFix: false,
+      updateInterval: null,
+    };
+
+    // ═══════════════════════════════════���════════════════════════
+    // INICIALIZACIÓN DEL MAPA
+    // ════════════════════════════════════════════════════════════
+    function initMap() {
+      STATE.map = L.map('map', {
+        zoomControl: true,
+        attributionControl: true,
+        preferCanvas: true,
+      });
+
+      // OpenStreetMap
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        minZoom: 2,
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+      }).addTo(STATE.map);
+
+      // Vista inicial
+      STATE.map.setView([10.48, -66.86], 5);
+
+      // Geocontrol
+      L.control.scale({ position: 'bottomleft', imperial: false }).addTo(STATE.map);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // POSICIÓN EN EL MAPA
+    // ════════════════════════════════════════════════════════════
+    function placeMarker(lat, lon, acc, alt = null, heading = null) {
+      const pos = [lat, lon];
+
+      if (!STATE.marker) {
+        // Crear marcador
+        const icon = L.divIcon({
+          className: 'custom-marker',
+          html: '<div class="my-marker"></div>',
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+          popupAnchor: [0, -14],
+        });
+
+        STATE.marker = L.marker(pos, { icon }).addTo(STATE.map);
+        STATE.marker.bindPopup('', { maxWidth: 250, closeButton: false });
+
+        // Círculo de precisión
+        STATE.circle = L.circle(pos, {
+          radius: acc,
+          color: '#f0b429',
+          fillColor: '#f0b429',
+          fillOpacity: 0.08,
+          weight: 1.5,
+          dashArray: '4 4',
+        }).addTo(STATE.map);
+      } else {
+        STATE.marker.setLatLng(pos);
+        STATE.circle.setLatLng(pos).setRadius(acc);
+      }
+
+      // Actualizar popup
+      const accStr = acc < 1000 ? `${Math.round(acc)} m` : `${(acc / 1000).toFixed(1)} km`;
+      let popupHTML = `
+        <b>📍 Mi posición actual</b><br>
+        Lat: <b>${lat.toFixed(6)}</b><br>
+        Lon: <b>${lon.toFixed(6)}</b><br>
+        Precisión: ±${accStr}
+      `;
+
+      if (alt !== null) {
+        popupHTML += `<br>Altitud: <b>${Math.round(alt)} m</b>`;
+      }
+
+      if (heading !== null && heading >= 0) {
+        popupHTML += `<br>Rumbo: <b>${Math.round(heading)}°</b>`;
+      }
+
+      STATE.marker.setPopupContent(popupHTML);
+
+      // Primera posición: centrar y abrir
+      if (!STATE.firstFix) {
+        STATE.firstFix = true;
+        const zoom =
+          acc < 20 ? 18 : acc < 100 ? 16 : acc < 500 ? 14 : 13;
+        STATE.map.setView(pos, zoom, { animate: true });
+        STATE.marker.openPopup();
+        hideSplash();
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // GEOLOCALIZACIÓN
+    // ════════════════════════════════════════════════════════════
+    function startGeolocation() {
+      if (!navigator.geolocation) {
+        hideSplash();
+        showPermissionDenied();
+        return;
+      }
+
+      const opts = {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      };
+
+      // Primera posición
+      navigator.geolocation.getCurrentPosition(onGeoSuccess, onGeoError, opts);
+
+      // Watcheo continuo
+      STATE.watchId = navigator.geolocation.watchPosition(onGeoSuccess, onGeoError, opts);
+    }
+
+    function onGeoSuccess(position) {
+      const {
+        latitude: lat,
+        longitude: lon,
+        accuracy: acc,
+        altitude: alt,
+        heading: heading,
+        speed: speed,
+      } = position.coords;
+
+      STATE.lat = lat;
+      STATE.lon = lon;
+      STATE.acc = acc;
+      STATE.alt = alt;
+      STATE.heading = heading;
+      STATE.speed = speed;
+
+      placeMarker(lat, lon, acc, alt, heading);
+      updateUI();
+    }
+
+    function onGeoError(error) {
+      const messages = {
+        1: { msg: 'Permiso de ubicación denegado', type: 'perm' },
+        2: { msg: 'Señal GPS débil, reintentando…', type: 'weak' },
+        3: { msg: 'Tiempo agotado, reintentando…', type: 'timeout' },
+      };
+
+      const errorInfo = messages[error.code] || { msg: 'Error desconocido', type: 'unknown' };
+
+      if (errorInfo.type === 'perm') {
+        hideSplash();
+        showPermissionDenied();
+      } else if (errorInfo.type === 'weak') {
+        setSplashMsg(errorInfo.msg);
+      } else if (errorInfo.type === 'timeout') {
+        setSplashMsg(errorInfo.msg);
+        // Reintentar con menor precisión
+        navigator.geolocation.getCurrentPosition(
+          onGeoSuccess,
+          () => {
+            hideSplash();
+            toast('No se pudo obtener la ubicación', 'err');
+          },
+          {
+            enableHighAccuracy: false,
+            timeout: 12000,
+            maximumAge: 60000,
+          }
+        );
+      }
+
+      console.warn('Geolocation error:', errorInfo.msg);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ACTUALIZAR UI
+    // ════════════════════════════════════════════════════════════
+    function updateUI() {
+      const { lat, lon, acc } = STATE;
+      if (lat === null) return;
+
+      const latS = lat.toFixed(6);
+      const lonS = lon.toFixed(6);
+      const accS = acc < 1000 ? `±${Math.round(acc)}m` : `±${(acc / 1000).toFixed(1)}km`;
+      const timeStr = getCurrentTime();
+
+      // Coordenadas
+      document.getElementById('cMain').textContent = `${latS}, ${lonS}`;
+      document.getElementById('cSub').textContent = `Precisión ${accS} · ${timeStr}`;
+
+      // Stats
+      document.getElementById('sLat').textContent = latS;
+      document.getElementById('sLon').textContent = lonS;
+      document.getElementById('sAcc').textContent = accS;
+
+      // HUD
+      const isAccurate = acc < 50;
+      const hudDot = document.getElementById('hudDot');
+      hudDot.className = `hud-dot ${isAccurate ? 'active' : 'searching'}`;
+
+      const hudBadge = document.getElementById('hudBadge');
+      hudBadge.className = `hud-badge ${isAccurate ? 'ok' : ''}`;
+      document.getElementById('hudAcc').textContent = accS;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // COMPARTIR
+    // ════════════════════════════════════════════════════════════
+    function getMapsUrl() {
+      return `https://www.google.com/maps?q=${STATE.lat},${STATE.lon}`;
+    }
+
+    function getShareText() {
+      return `📍 Mi ubicación actual:\n${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)} ±${Math.round(STATE.acc)}m\n\n🗺️ Ver en mapa:\n${getMapsUrl()}`;
+    }
+
+    function shareWA() {
+      if (!isReady()) return;
+      window.open('https://wa.me/?text=' + encodeURIComponent(getShareText()), '_blank');
+    }
+
+    async function shareNative() {
+      if (!isReady()) return;
+
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: '📍 Mi Ubicación',
+            text: getShareText(),
+            url: getMapsUrl(),
+          });
+          return;
+        } catch (error) {
+          if (error.name !== 'AbortError') {
+            console.warn('Share error:', error);
+          }
+          return;
+        }
+      }
+
+      // Fallback
+      copyText(getMapsUrl());
+      toast('Enlace copiado al portapapeles', 'ok');
+    }
+
+    function openGMaps() {
+      if (!isReady()) return;
+      window.open(`https://www.google.com/maps?q=${STATE.lat},${STATE.lon}&z=17`, '_blank');
+    }
+
+    function copyCoords() {
+      if (!isReady()) return;
+
+      const text = `${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)}`;
+      copyText(text);
+
+      const btn = document.getElementById('btnCopy');
+      const span = btn.querySelector('span');
+      btn.classList.add('copied');
+      span.textContent = 'Copiado';
+
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        span.textContent = 'Copiar';
+      }, 2200);
+
+      toast('¡Coordenadas copiadas!', 'ok');
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // UTILIDADES
+    // ════════════════════════════════════════════════════════════
+    function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+      } else {
+        legacyCopy(text);
+      }
+    }
+
+    function legacyCopy(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      Object.assign(textarea.style, {
+        position: 'fixed',
+        opacity: '0',
+        top: '0',
+        left: '0',
+      });
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } catch (error) {
+        console.error('Copy failed:', error);
+      }
+      document.body.removeChild(textarea);
+    }
+
+    function isReady() {
+      if (STATE.lat === null) {
+        toast('Esperando señal GPS…', 'err');
+        return false;
+      }
+      return true;
+    }
+
+    function getCurrentTime() {
+      return new Date().toLocaleTimeString('es-ES', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // SPLASH Y NOTIFICACIONES
+    // ════════════════════════════════════════════════════════════
+    let _splashHidden = false;
+
+    function hideSplash() {
+      if (_splashHidden) return;
+      _splashHidden = true;
+      document.getElementById('splash').classList.add('hidden');
+    }
+
+    function setSplashMsg(message) {
+      document.getElementById('splashMsg').textContent = message;
+    }
+
+    function showPermissionDenied() {
+      document.getElementById('permDenied').classList.add('show');
+    }
+
+    let _toastTimeout;
+
+    function toast(message, type = '', duration = 3000) {
+      const el = document.getElementById('toast');
+      el.textContent = message;
+      el.className = `show ${type}`;
+      clearTimeout(_toastTimeout);
+      _toastTimeout = setTimeout(() => {
+        el.className = '';
+      }, duration);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // INICIALIZACIÓN
+    // ════════════════════════════════════════════════════════════
+    document.addEventListener('DOMContentLoaded', () => {
+      initMap();
+      startGeolocation();
+
+      // Actualizar timestamp cada segundo
+      STATE.updateInterval = setInterval(() => {
+        if (STATE.lat !== null) {
+          const accS =
+            STATE.acc < 1000
+              ? `±${Math.round(STATE.acc)}m`
+              : `±${(STATE.acc / 1000).toFixed(1)}km`;
+          document.getElementById('cSub').textContent = `Precisión ${accS} · ${getCurrentTime()}`;
+        }
+      }, 1000);
+    });
+
+    // Limpieza
+    window.addEventListener('beforeunload', () => {
+      if (STATE.watchId !== null) {
+        navigator.geolocation.clearWatch(STATE.watchId);
+      }
+      if (STATE.updateInterval) {
+        clearInterval(STATE.updateInterval);
+      }
+    });
+
+    // Prevenir zoom con dos dedos en dispositivos móviles
+    document.addEventListener(
+      'touchmove',
+      (event) => {
+        if (event.touches.length > 1) {
+          event.preventDefault();
+        }
+      },
+      { passive: false }
+    );
+  </script>
+</body>
+</html>
