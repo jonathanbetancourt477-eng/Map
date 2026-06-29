@@ -352,7 +352,7 @@
       color: var(--accent);
     }
 
-    /* ════ PANEL INFERIOR ════════════════════════ */
+    /* ════ PANEL INFERIOR ══════════════���═════════ */
     #panel {
       position: fixed;
       bottom: 0;
@@ -462,7 +462,7 @@
       background: rgba(63, 185, 80, 0.08);
     }
 
-    /* ════ TEMPERATURA ════════════════════════════ */
+    /* ══��═ TEMPERATURA ════════════════════════════ */
     #tempBox {
       display: flex;
       align-items: center;
@@ -785,7 +785,7 @@
     <i class="iconoir-map-xmark"></i>
     <h2>Permiso requerido</h2>
     <p>Debes autorizar el acceso a tu ubicación desde la configuración de tu navegador para continuar.</p>
-    <button id="btnRetry" onclick="location.reload()">🔄 Intentar de nuevo</button>
+    <button id="btnRetry" onclick="location.reload()" aria-label="Reintentar y recargar la aplicación">🔄 Intentar de nuevo</button>
   </div>
 
   <!-- HUD -->
@@ -799,7 +799,7 @@
   </div>
 
   <!-- MAPA LEAFLET -->
-  <div id="map"></div>
+  <div id="map" role="region" aria-label="Mapa interactivo con tu ubicación actual"></div>
 
   <!-- PANEL -->
   <div id="panel">
@@ -810,7 +810,7 @@
         <div class="c-main" id="cMain">Obteniendo posición…</div>
         <div class="c-sub" id="cSub">Activando GPS</div>
       </div>
-      <button id="btnCopy" onclick="copyCoords()" title="Copiar coordenadas">
+      <button id="btnCopy" onclick="copyCoords()" title="Copiar coordenadas" aria-label="Copiar coordenadas al portapapeles">
         <i class="iconoir-copy"></i> <span>Copiar</span>
       </button>
     </div>
@@ -824,7 +824,7 @@
         </div>
         <div class="temp-label" id="tempLabel">Obteniendo temperatura…</div>
       </div>
-      <button class="temp-refresh" id="tempRefresh" onclick="fetchTemperature()" title="Actualizar temperatura">
+      <button class="temp-refresh" id="tempRefresh" onclick="fetchTemperature()" title="Actualizar temperatura" aria-label="Actualizar información de temperatura">
         <i class="iconoir-refresh"></i>
       </button>
     </div>
@@ -847,20 +847,20 @@
 
     <!-- Botones de acción -->
     <div class="btn-row">
-      <button class="btn btn-wa" onclick="shareWA()" title="Compartir en WhatsApp">
+      <button class="btn btn-wa" onclick="shareWA()" title="Compartir en WhatsApp" aria-label="Compartir tu ubicación en WhatsApp">
         <i class="iconoir-chat-bubble"></i> WhatsApp
       </button>
-      <button class="btn btn-share" onclick="shareNative()" title="Compartir ubicación">
+      <button class="btn btn-share" onclick="shareNative()" title="Compartir ubicación" aria-label="Compartir tu ubicación con otra aplicación">
         <i class="iconoir-share-android"></i> Compartir
       </button>
-      <button class="btn btn-gmap" onclick="openGMaps()" title="Abrir en Google Maps">
+      <button class="btn btn-gmap" onclick="openGMaps()" title="Abrir en Google Maps" aria-label="Abrir tu ubicación en Google Maps">
         <i class="iconoir-map"></i> Mapas
       </button>
     </div>
   </div>
 
   <!-- TOAST -->
-  <div id="toast"></div>
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -882,8 +882,8 @@
       marker: null,
       circle: null,
       firstFix: false,
-      updateInterval: null,
       tempUpdateInterval: null,
+      isDestroyed: false,
     };
 
     // ═══════════════════════════════════════════════════════════
@@ -896,7 +896,6 @@
         preferCanvas: true,
       });
 
-      // OpenStreetMap
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         minZoom: 2,
@@ -904,10 +903,7 @@
           '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
       }).addTo(STATE.map);
 
-      // Vista inicial
       STATE.map.setView([10.48, -66.86], 5);
-
-      // Geocontrol
       L.control.scale({ position: 'bottomleft', imperial: false }).addTo(STATE.map);
     }
 
@@ -918,7 +914,6 @@
       const pos = [lat, lon];
 
       if (!STATE.marker) {
-        // Crear marcador
         const icon = L.divIcon({
           className: 'custom-marker',
           html: '<div class="my-marker"></div>',
@@ -930,7 +925,6 @@
         STATE.marker = L.marker(pos, { icon }).addTo(STATE.map);
         STATE.marker.bindPopup('', { maxWidth: 250, closeButton: false });
 
-        // Círculo de precisión
         STATE.circle = L.circle(pos, {
           radius: acc,
           color: '#f0b429',
@@ -944,7 +938,32 @@
         STATE.circle.setLatLng(pos).setRadius(acc);
       }
 
-      // Actualizar popup
+      updatePopup(lat, lon, acc, alt, heading);
+
+      if (!STATE.firstFix) {
+        STATE.firstFix = true;
+        const zoom = acc < 20 ? 18 : acc < 100 ? 16 : acc < 500 ? 14 : 13;
+        STATE.map.setView(pos, zoom, { animate: true });
+        STATE.marker.openPopup();
+        hideSplash();
+        
+        fetchTemperature();
+        
+        // Actualizar temperatura cada 10 minutos
+        STATE.tempUpdateInterval = setInterval(() => {
+          if (!STATE.isDestroyed) {
+            fetchTemperature();
+          }
+        }, 600000);
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ACTUALIZAR POPUP (Centralizado)
+    // ════════════════════════════════════════════════════════════
+    function updatePopup(lat, lon, acc, alt = null, heading = null) {
+      if (!STATE.marker) return;
+
       const accStr = acc < 1000 ? `${Math.round(acc)} m` : `${(acc / 1000).toFixed(1)} km`;
       let popupHTML = `
         <b>📍 Mi posición actual</b><br>
@@ -966,45 +985,29 @@
       }
 
       STATE.marker.setPopupContent(popupHTML);
-
-      // Primera posición: centrar y abrir
-      if (!STATE.firstFix) {
-        STATE.firstFix = true;
-        const zoom =
-          acc < 20 ? 18 : acc < 100 ? 16 : acc < 500 ? 14 : 13;
-        STATE.map.setView(pos, zoom, { animate: true });
-        STATE.marker.openPopup();
-        hideSplash();
-        
-        // Obtener temperatura
-        fetchTemperature();
-        
-        // Actualizar temperatura cada 10 minutos
-        STATE.tempUpdateInterval = setInterval(() => {
-          fetchTemperature();
-        }, 600000);
-      }
     }
 
     // ════════════════════════════════════════════════════════════
     // TEMPERATURA EN TIEMPO REAL
     // ════════════════════════════════════════════════════════════
     async function fetchTemperature() {
-      if (STATE.lat === null || STATE.lon === null) return;
+      if (STATE.lat === null || STATE.lon === null || STATE.isDestroyed) return;
 
       const tempBox = document.getElementById('tempBox');
       const refreshBtn = document.getElementById('tempRefresh');
       
+      if (!tempBox || !refreshBtn) return;
+
       refreshBtn.classList.add('refreshing');
       tempBox.classList.add('loading');
 
       try {
-        // API Open-Meteo (gratuita, sin clave)
         const response = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${STATE.lat}&longitude=${STATE.lon}&current=temperature_2m,weather_code,relative_humidity&timezone=auto`
+          `https://api.open-meteo.com/v1/forecast?latitude=${STATE.lat}&longitude=${STATE.lon}&current=temperature_2m,weather_code,relative_humidity&timezone=auto`,
+          { signal: AbortSignal.timeout(8000) }
         );
 
-        if (!response.ok) throw new Error('Error en la API');
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
 
         const data = await response.json();
         const current = data.current;
@@ -1032,8 +1035,7 @@
         }
 
         // Actualizar UI
-        tempBox.className = `loading ${tempClass}`;
-        tempBox.classList.remove('loading');
+        tempBox.className = tempClass;
 
         document.getElementById('tempIcon').textContent = tempIcon;
         
@@ -1045,22 +1047,17 @@
         const zone = getTemperatureZone(temp);
         tempLabel.textContent = zone + ' • Actualizado hace momentos';
 
-        // Actualizar popup del marcador
-        if (STATE.marker) {
-          let popupHTML = STATE.marker.getPopup().getContent();
-          if (!popupHTML.includes('Temperatura:')) {
-            popupHTML += `<br>Temperatura: <b>${temp}°C</b> (${humidity}% H)`;
-            STATE.marker.setPopupContent(popupHTML);
-          }
-        }
-
-        refreshBtn.classList.remove('refreshing');
+        updatePopup(STATE.lat, STATE.lon, STATE.acc, STATE.alt, STATE.heading);
 
       } catch (error) {
         console.error('Error obteniendo temperatura:', error);
-        tempBox.classList.add('loading');
-        document.getElementById('tempLabel').textContent = 'Error obteniendo datos';
-        refreshBtn.classList.remove('refreshing');
+        if (document.getElementById('tempLabel')) {
+          document.getElementById('tempLabel').textContent = 'Error obteniendo datos';
+        }
+      } finally {
+        if (refreshBtn) {
+          refreshBtn.classList.remove('refreshing');
+        }
       }
     }
 
@@ -1077,7 +1074,7 @@
 
     // ════════════════════════════════════════════════════════════
     // GEOLOCALIZACIÓN
-    // ════════════════════════════════════════════════════════════
+    // ═════════════════════════════════��══════════════════════════
     function startGeolocation() {
       if (!navigator.geolocation) {
         hideSplash();
@@ -1091,21 +1088,20 @@
         maximumAge: 0,
       };
 
-      // Primera posición
       navigator.geolocation.getCurrentPosition(onGeoSuccess, onGeoError, opts);
-
-      // Watcheo continuo
       STATE.watchId = navigator.geolocation.watchPosition(onGeoSuccess, onGeoError, opts);
     }
 
     function onGeoSuccess(position) {
+      if (STATE.isDestroyed) return;
+
       const {
         latitude: lat,
         longitude: lon,
         accuracy: acc,
         altitude: alt,
-        heading: heading,
-        speed: speed,
+        heading,
+        speed,
       } = position.coords;
 
       STATE.lat = lat;
@@ -1120,6 +1116,8 @@
     }
 
     function onGeoError(error) {
+      if (STATE.isDestroyed) return;
+
       const messages = {
         1: { msg: 'Permiso de ubicación denegado', type: 'perm' },
         2: { msg: 'Señal GPS débil, reintentando…', type: 'weak' },
@@ -1131,26 +1129,21 @@
       if (errorInfo.type === 'perm') {
         hideSplash();
         showPermissionDenied();
+        cleanupGeolocation();
       } else if (errorInfo.type === 'weak') {
         setSplashMsg(errorInfo.msg);
       } else if (errorInfo.type === 'timeout') {
         setSplashMsg(errorInfo.msg);
-        // Reintentar con menor precisión
-        navigator.geolocation.getCurrentPosition(
-          onGeoSuccess,
-          () => {
-            hideSplash();
-            toast('No se pudo obtener la ubicación', 'err');
-          },
-          {
-            enableHighAccuracy: false,
-            timeout: 12000,
-            maximumAge: 60000,
-          }
-        );
       }
 
       console.warn('Geolocation error:', errorInfo.msg);
+    }
+
+    function cleanupGeolocation() {
+      if (STATE.watchId !== null) {
+        navigator.geolocation.clearWatch(STATE.watchId);
+        STATE.watchId = null;
+      }
     }
 
     // ════════════════════════════════════════════════════════════
@@ -1165,16 +1158,13 @@
       const accS = acc < 1000 ? `±${Math.round(acc)}m` : `±${(acc / 1000).toFixed(1)}km`;
       const timeStr = getCurrentTime();
 
-      // Coordenadas
       document.getElementById('cMain').textContent = `${latS}, ${lonS}`;
       document.getElementById('cSub').textContent = `Precisión ${accS} · ${timeStr}`;
 
-      // Stats
       document.getElementById('sLat').textContent = latS;
       document.getElementById('sLon').textContent = lonS;
       document.getElementById('sAcc').textContent = accS;
 
-      // HUD
       const isAccurate = acc < 50;
       const hudDot = document.getElementById('hudDot');
       hudDot.className = `hud-dot ${isAccurate ? 'active' : 'searching'}`;
@@ -1192,7 +1182,7 @@
     }
 
     function getShareText() {
-      let text = `📍 Mi ubicación actual:\n${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)} ±${Math.round(STATE.acc)}m`;
+      let text = `��� Mi ubicación actual:\n${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)} ±${Math.round(STATE.acc)}m`;
       
       if (STATE.temp !== null) {
         const zone = getTemperatureZone(STATE.temp);
@@ -1228,7 +1218,6 @@
         }
       }
 
-      // Fallback
       copyText(getMapsUrl());
       toast('Enlace copiado al portapapeles', 'ok');
     }
@@ -1266,13 +1255,47 @@
     }
 
     function copyText(text) {
-      navigator.clipboard.writeText(text).then(() => {
+      // Método moderno con fallback
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text)
+          .then(() => {
+            const btn = document.getElementById('btnCopy');
+            if (btn) {
+              const span = btn.querySelector('span');
+              if (span) span.textContent = '✓ Copiado';
+            }
+          })
+          .catch(err => {
+            console.warn('Clipboard API error:', err);
+            fallbackCopyText(text);
+          });
+      } else {
+        fallbackCopyText(text);
+      }
+    }
+
+    function fallbackCopyText(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.pointerEvents = 'none';
+      document.body.appendChild(textarea);
+
+      try {
+        textarea.select();
+        document.execCommand('copy');
         const btn = document.getElementById('btnCopy');
         if (btn) {
           const span = btn.querySelector('span');
-          span.textContent = '✓ Copiado';
+          if (span) span.textContent = '✓ Copiado';
         }
-      });
+      } catch (err) {
+        console.warn('Fallback copy error:', err);
+        toast('No se pudo copiar', 'err');
+      } finally {
+        document.body.removeChild(textarea);
+      }
     }
 
     function getCurrentTime() {
@@ -1311,6 +1334,29 @@
     window.addEventListener('DOMContentLoaded', () => {
       initMap();
       startGeolocation();
+    });
+
+    // Limpiar recursos cuando se cierra la pestaña
+    window.addEventListener('beforeunload', () => {
+      STATE.isDestroyed = true;
+      cleanupGeolocation();
+      if (STATE.tempUpdateInterval) {
+        clearInterval(STATE.tempUpdateInterval);
+      }
+    });
+
+    // Pausar actualizaciones si la pestaña pierde foco (ahorro de batería)
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && STATE.tempUpdateInterval) {
+        clearInterval(STATE.tempUpdateInterval);
+        STATE.tempUpdateInterval = null;
+      } else if (!document.hidden && STATE.firstFix) {
+        STATE.tempUpdateInterval = setInterval(() => {
+          if (!STATE.isDestroyed) {
+            fetchTemperature();
+          }
+        }, 600000);
+      }
     });
   </script>
 </body>
