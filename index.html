@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="description" content="Aplicación de geolocalización en tiempo real con mapa interactivo" />
+  <meta name="description" content="Aplicación de geolocalización en tiempo real con mapa interactivo y temperatura" />
   <title>Mi Ubicación en Vivo</title>
 
   <!-- Iconoir Icons -->
@@ -26,10 +26,14 @@
       --muted:   #6e7681;
       --text:    #e6edf3;
       --text2:   #8b949e;
-      --panel-h: 240px;
+      --panel-h: 300px;
       --hud-h:   52px;
       --radius:  14px;
       --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      --temp-cold: #2563eb;
+      --temp-cool: #06b6d4;
+      --temp-warm: #f59e0b;
+      --temp-hot: #ef4444;
     }
 
     *,
@@ -458,6 +462,117 @@
       background: rgba(63, 185, 80, 0.08);
     }
 
+    /* ════ TEMPERATURA ════════════════════════════ */
+    #tempBox {
+      display: flex;
+      align-items: center;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      gap: 12px;
+      transition: all var(--transition);
+    }
+
+    #tempBox.loading {
+      opacity: 0.6;
+      border-color: var(--muted);
+    }
+
+    #tempBox.cold {
+      border-color: rgba(37, 99, 235, 0.4);
+      background: rgba(37, 99, 235, 0.08);
+    }
+
+    #tempBox.cool {
+      border-color: rgba(6, 182, 212, 0.4);
+      background: rgba(6, 182, 212, 0.08);
+    }
+
+    #tempBox.warm {
+      border-color: rgba(245, 158, 11, 0.4);
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    #tempBox.hot {
+      border-color: rgba(239, 68, 68, 0.4);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    #tempIcon {
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+
+    .temp-data {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .temp-value {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+
+    .temp-value.cold {
+      color: var(--temp-cold);
+    }
+
+    .temp-value.cool {
+      color: var(--temp-cool);
+    }
+
+    .temp-value.warm {
+      color: var(--temp-warm);
+    }
+
+    .temp-value.hot {
+      color: var(--temp-hot);
+    }
+
+    .temp-value span {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .temp-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .temp-refresh {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all var(--transition);
+      color: var(--text2);
+      font-size: 14px;
+    }
+
+    .temp-refresh:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(240, 180, 41, 0.08);
+    }
+
+    .temp-refresh.refreshing {
+      animation: spin 1s linear infinite;
+    }
+
     /* Stats */
     .stats-row {
       display: flex;
@@ -613,7 +728,7 @@
     /* ════ RESPONSIVE ════════════════════════════ */
     @media (max-width: 480px) {
       :root {
-        --panel-h: 260px;
+        --panel-h: 340px;
       }
 
       .btn {
@@ -627,6 +742,14 @@
 
       .s-val {
         font-size: 12px;
+      }
+
+      #tempBox {
+        padding: 10px 12px;
+      }
+
+      .temp-value {
+        font-size: 14px;
       }
     }
 
@@ -692,6 +815,20 @@
       </button>
     </div>
 
+    <!-- Temperatura -->
+    <div id="tempBox" class="loading">
+      <i class="iconoir-cloud-sun" id="tempIcon"></i>
+      <div class="temp-data">
+        <div class="temp-value" id="tempValue">
+          <span>—°C</span>
+        </div>
+        <div class="temp-label" id="tempLabel">Obteniendo temperatura…</div>
+      </div>
+      <button class="temp-refresh" id="tempRefresh" onclick="fetchTemperature()" title="Actualizar temperatura">
+        <i class="iconoir-refresh"></i>
+      </button>
+    </div>
+
     <!-- Stats -->
     <div class="stats-row">
       <div class="stat-chip">
@@ -739,15 +876,17 @@
       alt: null,
       heading: null,
       speed: null,
+      temp: null,
       watchId: null,
       map: null,
       marker: null,
       circle: null,
       firstFix: false,
       updateInterval: null,
+      tempUpdateInterval: null,
     };
 
-    // ═══════════════════════════════════���════════════════════════
+    // ═══════════════════════════════════════════════════════════
     // INICIALIZACIÓN DEL MAPA
     // ════════════════════════════════════════════════════════════
     function initMap() {
@@ -822,6 +961,10 @@
         popupHTML += `<br>Rumbo: <b>${Math.round(heading)}°</b>`;
       }
 
+      if (STATE.temp !== null) {
+        popupHTML += `<br>Temperatura: <b>${STATE.temp}°C</b>`;
+      }
+
       STATE.marker.setPopupContent(popupHTML);
 
       // Primera posición: centrar y abrir
@@ -832,7 +975,104 @@
         STATE.map.setView(pos, zoom, { animate: true });
         STATE.marker.openPopup();
         hideSplash();
+        
+        // Obtener temperatura
+        fetchTemperature();
+        
+        // Actualizar temperatura cada 10 minutos
+        STATE.tempUpdateInterval = setInterval(() => {
+          fetchTemperature();
+        }, 600000);
       }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // TEMPERATURA EN TIEMPO REAL
+    // ════════════════════════════════════════════════════════════
+    async function fetchTemperature() {
+      if (STATE.lat === null || STATE.lon === null) return;
+
+      const tempBox = document.getElementById('tempBox');
+      const refreshBtn = document.getElementById('tempRefresh');
+      
+      refreshBtn.classList.add('refreshing');
+      tempBox.classList.add('loading');
+
+      try {
+        // API Open-Meteo (gratuita, sin clave)
+        const response = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${STATE.lat}&longitude=${STATE.lon}&current=temperature_2m,weather_code,relative_humidity&timezone=auto`
+        );
+
+        if (!response.ok) throw new Error('Error en la API');
+
+        const data = await response.json();
+        const current = data.current;
+        const temp = Math.round(current.temperature_2m);
+        const humidity = current.relative_humidity;
+
+        STATE.temp = temp;
+
+        // Determinar categoría de temperatura
+        let tempClass = 'cold';
+        let tempIcon = '🥶';
+        
+        if (temp < 10) {
+          tempClass = 'cold';
+          tempIcon = '🥶';
+        } else if (temp < 20) {
+          tempClass = 'cool';
+          tempIcon = '❄️';
+        } else if (temp < 28) {
+          tempClass = 'warm';
+          tempIcon = '☀️';
+        } else {
+          tempClass = 'hot';
+          tempIcon = '🔥';
+        }
+
+        // Actualizar UI
+        tempBox.className = `loading ${tempClass}`;
+        tempBox.classList.remove('loading');
+
+        document.getElementById('tempIcon').textContent = tempIcon;
+        
+        const tempValue = document.getElementById('tempValue');
+        tempValue.className = `temp-value ${tempClass}`;
+        tempValue.innerHTML = `<strong>${temp}°C</strong> <span>${humidity}% H</span>`;
+
+        const tempLabel = document.getElementById('tempLabel');
+        const zone = getTemperatureZone(temp);
+        tempLabel.textContent = zone + ' • Actualizado hace momentos';
+
+        // Actualizar popup del marcador
+        if (STATE.marker) {
+          let popupHTML = STATE.marker.getPopup().getContent();
+          if (!popupHTML.includes('Temperatura:')) {
+            popupHTML += `<br>Temperatura: <b>${temp}°C</b> (${humidity}% H)`;
+            STATE.marker.setPopupContent(popupHTML);
+          }
+        }
+
+        refreshBtn.classList.remove('refreshing');
+
+      } catch (error) {
+        console.error('Error obteniendo temperatura:', error);
+        tempBox.classList.add('loading');
+        document.getElementById('tempLabel').textContent = 'Error obteniendo datos';
+        refreshBtn.classList.remove('refreshing');
+      }
+    }
+
+    function getTemperatureZone(temp) {
+      if (temp < 0) return '❄️ Congelación';
+      if (temp < 10) return '🥶 Muy frío';
+      if (temp < 15) return '❄️ Frío';
+      if (temp < 20) return '😊 Fresco';
+      if (temp < 25) return '😌 Agradable';
+      if (temp < 28) return '☀️ Cálido';
+      if (temp < 35) return '🔥 Muy caliente';
+      return '🌡️ Extremadamente caliente';
     }
 
     // ════════════════════════════════════════════════════════════
@@ -952,7 +1192,16 @@
     }
 
     function getShareText() {
-      return `📍 Mi ubicación actual:\n${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)} ±${Math.round(STATE.acc)}m\n\n🗺️ Ver en mapa:\n${getMapsUrl()}`;
+      let text = `📍 Mi ubicación actual:\n${STATE.lat.toFixed(6)}, ${STATE.lon.toFixed(6)} ±${Math.round(STATE.acc)}m`;
+      
+      if (STATE.temp !== null) {
+        const zone = getTemperatureZone(STATE.temp);
+        text += `\n🌡️ Temperatura: ${STATE.temp}°C (${zone})`;
+      }
+      
+      text += `\n\n🗺️ Ver en mapa:\n${getMapsUrl()}`;
+      
+      return text;
     }
 
     function shareWA() {
@@ -998,133 +1247,71 @@
       const btn = document.getElementById('btnCopy');
       const span = btn.querySelector('span');
       btn.classList.add('copied');
-      span.textContent = 'Copiado';
 
       setTimeout(() => {
         btn.classList.remove('copied');
         span.textContent = 'Copiar';
-      }, 2200);
-
-      toast('¡Coordenadas copiadas!', 'ok');
+      }, 2000);
     }
 
     // ════════════════════════════════════════════════════════════
-    // UTILIDADES
+    // UTILIDADES UI
     // ════════════════════════════════════════════════════════════
-    function copyText(text) {
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
-      } else {
-        legacyCopy(text);
-      }
-    }
-
-    function legacyCopy(text) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      Object.assign(textarea.style, {
-        position: 'fixed',
-        opacity: '0',
-        top: '0',
-        left: '0',
-      });
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      try {
-        document.execCommand('copy');
-      } catch (error) {
-        console.error('Copy failed:', error);
-      }
-      document.body.removeChild(textarea);
-    }
-
     function isReady() {
       if (STATE.lat === null) {
-        toast('Esperando señal GPS…', 'err');
+        toast('Obteniendo ubicación…', 'err');
         return false;
       }
       return true;
     }
 
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('btnCopy');
+        if (btn) {
+          const span = btn.querySelector('span');
+          span.textContent = '✓ Copiado';
+        }
+      });
+    }
+
     function getCurrentTime() {
-      return new Date().toLocaleTimeString('es-ES', {
+      const now = new Date();
+      return now.toLocaleTimeString('es-ES', {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
       });
     }
 
-    // ════════════════════════════════════════════════════════════
-    // SPLASH Y NOTIFICACIONES
-    // ════════════════════════════════════════════════════════════
-    let _splashHidden = false;
-
     function hideSplash() {
-      if (_splashHidden) return;
-      _splashHidden = true;
       document.getElementById('splash').classList.add('hidden');
     }
 
-    function setSplashMsg(message) {
-      document.getElementById('splashMsg').textContent = message;
+    function setSplashMsg(msg) {
+      document.getElementById('splashMsg').textContent = msg;
     }
 
     function showPermissionDenied() {
       document.getElementById('permDenied').classList.add('show');
     }
 
-    let _toastTimeout;
-
-    function toast(message, type = '', duration = 3000) {
+    function toast(msg, type = 'info') {
       const el = document.getElementById('toast');
-      el.textContent = message;
+      el.textContent = msg;
       el.className = `show ${type}`;
-      clearTimeout(_toastTimeout);
-      _toastTimeout = setTimeout(() => {
-        el.className = '';
-      }, duration);
+      setTimeout(() => {
+        el.classList.remove('show');
+      }, 3000);
     }
 
     // ════════════════════════════════════════════════════════════
-    // INICIALIZACIÓN
+    // INICIAR APP
     // ════════════════════════════════════════════════════════════
-    document.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('DOMContentLoaded', () => {
       initMap();
       startGeolocation();
-
-      // Actualizar timestamp cada segundo
-      STATE.updateInterval = setInterval(() => {
-        if (STATE.lat !== null) {
-          const accS =
-            STATE.acc < 1000
-              ? `±${Math.round(STATE.acc)}m`
-              : `±${(STATE.acc / 1000).toFixed(1)}km`;
-          document.getElementById('cSub').textContent = `Precisión ${accS} · ${getCurrentTime()}`;
-        }
-      }, 1000);
     });
-
-    // Limpieza
-    window.addEventListener('beforeunload', () => {
-      if (STATE.watchId !== null) {
-        navigator.geolocation.clearWatch(STATE.watchId);
-      }
-      if (STATE.updateInterval) {
-        clearInterval(STATE.updateInterval);
-      }
-    });
-
-    // Prevenir zoom con dos dedos en dispositivos móviles
-    document.addEventListener(
-      'touchmove',
-      (event) => {
-        if (event.touches.length > 1) {
-          event.preventDefault();
-        }
-      },
-      { passive: false }
-    );
   </script>
 </body>
 </html>
